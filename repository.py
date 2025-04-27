@@ -5,7 +5,7 @@ import requests
 from typing import Any, Callable, Iterator, ParamSpec, TypeVar
 
 from todoist_api_python.api import TodoistAPI
-from todoist_api_python.models import Task
+from todoist_api_python.models import Project, Task
 
 T = TypeVar('T')
 P = ParamSpec('P')
@@ -16,7 +16,7 @@ class TodoistRepository:
         self.api = TodoistAPI(token)
 
     @staticmethod
-    def list_from_api(
+    def list_from_iterator_of_list(
         func: Callable[P, Iterator[list[T]]]
     ) -> Callable[P, list[T]]:
         @wraps(func)
@@ -27,11 +27,27 @@ class TodoistRepository:
             return res
         return wrapper
 
-    @list_from_api
+    @list_from_iterator_of_list
     def filter_tasks(
         self, *, query = None, lang = None, limit = None
     ) -> Iterator[list[Task]]:
         return self.api.filter_tasks(query=query, lang=lang, limit=limit)
+
+    def add_project(
+        self,
+        name,
+        *,
+        description = None,
+        parent_id = None,
+        color = None,
+        is_favorite = None,
+        view_style = None,
+    ) -> Project:
+        return self.api.add_project(name, description=description, parent_id=parent_id, color=color, is_favorite=is_favorite, view_style=view_style)
+
+    @list_from_iterator_of_list
+    def get_projects(self, limit = None) -> Iterator[list[Project]]:
+        return self.api.get_projects(limit)
 
 
 class TodoistSyncRepository:
