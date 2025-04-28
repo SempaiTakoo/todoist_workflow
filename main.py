@@ -1,51 +1,85 @@
-from collections import defaultdict
 import os
-from typing import Callable, Sequence, TypeVar
+from collections import defaultdict
+from typing import TypeVar
+
 from dotenv import load_dotenv
-from todoist_api_python.models import Task, Project
+from todoist_api_python.models import Section, Task
 
 from repository import TodoistRepository, TodoistSyncRepository
+from utils import find_by_id, find_by_name
+
+TASK_LABELS_TO_MOVE = [
+    "#разовая",
+    "#календарь",
+    "#календарь/рутина/неделя",
+    "#календарь/рутина/месяц",
+    "#календарь/праздник",
+    "#календарь/платёж",
+    "#потом/неделя",
+    "#потом/месяц",
+    "#потом/неясно",
+]
+TASKS_DESTINATION = "6XmVVx4ChwxWffFx"
+PROJECTS_DESTINATION = "6XqvJwqJMgGm4QPv"
+
 
 load_dotenv()
 
-TOKEN = os.getenv('TOKEN')
-SYNC_URL = 'https://api.todoist.com/sync/v9/sync'
+TOKEN = os.getenv("TOKEN")
+SYNC_URL = "https://api.todoist.com/sync/v9/sync"
 
-T = TypeVar('T')
-
-
-def find_by_predicate(
-    items: Sequence[T],
-    predicate: Callable[..., bool]
-) -> T | None:
-    return next((item for item in items if predicate(item)), None)
+T = TypeVar("T")
 
 
-def find_by_id(items: Sequence[T], id: int) -> T | None:
-    return find_by_predicate(items, lambda x: x.id == id)
+class TodoistWorkflowService:
+    def __init__(self, token: str, sync_url: str) -> None:
+        self.token = token
+        self.sync_url = sync_url
 
+    def create_section_for_tasks_with_subtasks(
+        self, query: str, project_id: str
+    ) -> None:
+        repo = TodoistRepository(self.token)
+        tasks: list[Task] = repo.filter_tasks(query=query)
+        sections: list[Section] = repo.get_sections(project_id)
 
-def find_by_name(items: Sequence[T], name: str) -> T | None:
-    return find_by_predicate(items, lambda x: x.name == name)
+        task_id_to_subtask_ids = get_task_id_to_subtask_ids(tasks)
 
+        for task_id, subtask_ids in task_id_to_subtask_ids.items():
+            task = find_by_id(tasks, task_id)
 
-def create_projects_by_labels(query: str) -> None:
-    repo = TodoistRepository(TOKEN)
-    tasks: list[Task] = repo.filter_tasks(query=query)
-    projects: list[Project] = repo.get_projects()
+            assert task is not None
 
-    task_id_to_subtask_ids = get_task_id_to_subtask_ids(tasks)
+            section = find_by_name(sections, task.content)
+            if not section:
+                section = repo.add_section(
+                    name=task.content, project_id=project_id
+                )
+            print(section.name)
 
-    sync_repo = TodoistSyncRepository(TOKEN, SYNC_URL)
-    for t_id, subt_ids in task_id_to_subtask_ids.items():
-        project_name = find_by_id(tasks, t_id).content
+            sync_repo = TodoistSyncRepository(self.token, self.sync_url)
+            for subtask_id in subtask_ids:
+                sync_repo.add_move_item_command(subtask_id, section_id=section.id)
+            sync_repo.send_commands()
 
-        project = find_by_name(projects, project_name)
-        if not project:
-            project = repo.add_project(project_name)
+    def move_tasks_with_labels_to_project(
+        self, query: str, labels: list[str], project_id: str
+    ) -> None:
+        repo = TodoistRepository(self.token)
+        tasks: list[Task] = repo.filter_tasks(query=query)
 
-        for subt_id in subt_ids:
-            sync_repo.add_move_item_command(subt_id, project_id=project.id)
+        sync_repo = TodoistSyncRepository(self.token, SYNC_URL)
+        for t in tasks:
+            if not t.labels:
+                continue
+
+            if t.parent_id is not None:
+                continue
+
+            if not any(label in t.labels for label in labels):
+                continue
+
+            sync_repo.add_move_item_command(task_id=t.id, project_id=project_id)
         sync_repo.send_commands()
 
 
@@ -57,39 +91,19 @@ def get_task_id_to_subtask_ids(tasks: list[Task]) -> defaultdict[str, set[str]]:
     return tasks_subtasks
 
 
-def move_tasks_by_rule(query: str, rule: dict[str, str]) -> None:
-    repo = TodoistRepository(TOKEN)
-    tasks: list[Task] = repo.filter_tasks(query=query)
+def main() -> None:
+    if not TOKEN:
+        print("TOKEN отсутствует!")
+        return
 
-    sync_repo = TodoistSyncRepository(TOKEN, SYNC_URL)
-    for t in tasks:
-        if not t.labels:
-            continue
-
-        destination = ''
-        for label in rule:
-            if label in t.labels:
-                destination = rule[label]
-
-        if destination:
-            sync_repo.add_move_item_command(
-                task_id=t.id,
-                project_id=destination
-            )
-    sync_repo.send_commands()
+    todoist = TodoistWorkflowService(TOKEN, SYNC_URL)
+    todoist.move_tasks_with_labels_to_project(
+        query="#Inbox", labels=TASK_LABELS_TO_MOVE, project_id=TASKS_DESTINATION
+    )
+    todoist.create_section_for_tasks_with_subtasks(
+        query="#Inbox", project_id=PROJECTS_DESTINATION
+    )
 
 
 if __name__ == "__main__":
-    labels_to_project_ids = {
-        "#разовая": "6XmVVx4ChwxWffFx",
-        "#календарь": "6XmVVx4ChwxWffFx",
-        "#календарь/рутина/неделя": "6XmVVx4ChwxWffFx",
-        "#календарь/рутина/месяц": "6XmVVx4ChwxWffFx",
-        "#календарь/праздник": "6XmVVx4ChwxWffFx",
-        "#календарь/платёж": "6XmVVx4ChwxWffFx",
-        "#потом/неделя": "6XmVVx4ChwxWffFx",
-        "#потом/месяц": "6XmVVx4ChwxWffFx",
-        "#потом/неясно": "6XmVVx4ChwxWffFx",
-    }
-    move_tasks_by_rule(query="#Inbox", rule=labels_to_project_ids)
-    create_projects_by_labels(query="#Inbox")
+    main()

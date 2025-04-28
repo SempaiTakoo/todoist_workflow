@@ -1,14 +1,15 @@
-from functools import wraps
 import json
 import uuid
+from collections.abc import Callable, Iterator
+from functools import wraps
+from typing import Any, ParamSpec, TypeVar
+
 import requests
-from typing import Any, Callable, Iterator, ParamSpec, TypeVar
-
 from todoist_api_python.api import TodoistAPI
-from todoist_api_python.models import Project, Task
+from todoist_api_python.models import Project, Section, Task
 
-T = TypeVar('T')
-P = ParamSpec('P')
+T = TypeVar("T")
+P = ParamSpec("P")
 
 
 class TodoistRepository:
@@ -17,7 +18,7 @@ class TodoistRepository:
 
     @staticmethod
     def list_from_iterator_of_list(
-        func: Callable[P, Iterator[list[T]]]
+        func: Callable[P, Iterator[list[T]]],
     ) -> Callable[P, list[T]]:
         @wraps(func)
         def wrapper(*args: P.args, **kwargs: P.kwargs) -> list[T]:
@@ -25,11 +26,12 @@ class TodoistRepository:
             for objects_list in func(*args, **kwargs):
                 res.extend(objects_list)
             return res
+
         return wrapper
 
     @list_from_iterator_of_list
     def filter_tasks(
-        self, *, query = None, lang = None, limit = None
+        self, *, query=None, lang=None, limit=None
     ) -> Iterator[list[Task]]:
         return self.api.filter_tasks(query=query, lang=lang, limit=limit)
 
@@ -37,17 +39,35 @@ class TodoistRepository:
         self,
         name,
         *,
-        description = None,
-        parent_id = None,
-        color = None,
-        is_favorite = None,
-        view_style = None,
+        description=None,
+        parent_id=None,
+        color=None,
+        is_favorite=None,
+        view_style=None,
     ) -> Project:
-        return self.api.add_project(name, description=description, parent_id=parent_id, color=color, is_favorite=is_favorite, view_style=view_style)
+        return self.api.add_project(
+            name,
+            description=description,
+            parent_id=parent_id,
+            color=color,
+            is_favorite=is_favorite,
+            view_style=view_style,
+        )
 
     @list_from_iterator_of_list
-    def get_projects(self, limit = None) -> Iterator[list[Project]]:
+    def get_projects(self, limit=None) -> Iterator[list[Project]]:
         return self.api.get_projects(limit)
+
+    def add_section(
+        self, name: str, project_id: str, *, order: int | None = None
+    ) -> Section:
+        return self.api.add_section(name, project_id, order=order)
+
+    @list_from_iterator_of_list
+    def get_sections(
+        self, project_id: str | None = None, *, limit: int | None = None
+    ) -> Iterator[list[Section]]:
+        return self.api.get_sections(project_id, limit=limit)
 
 
 class TodoistSyncRepository:
@@ -61,35 +81,38 @@ class TodoistSyncRepository:
         task_id: str,
         parent_id: str | None = None,
         section_id: str | None = None,
-        project_id: str | None = None
-    ) -> dict[str, Any]:
-        only_one_target: bool = (((parent_id is not None)
-                                ^ (section_id is not None)
-                                ^ (project_id is not None))
-                                and not((project_id is not None)
-                                        and (section_id is not None)
-                                        and (project_id is not None)))
+        project_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        only_one_target: bool = (
+            (parent_id is not None)
+            ^ (section_id is not None)
+            ^ (project_id is not None)
+        ) and not (
+            (project_id is not None)
+            and (section_id is not None)
+            and (project_id is not None)
+        )
         if not only_one_target:
             raise ValueError(
-                'Должно быть указано только одно место назначения: '
-                'parent_id, section_id, project_id'
+                "Должно быть указано только одно место назначения: "
+                "parent_id, section_id, project_id"
             )
 
         command = {
-            'type': 'item_move',
-            'uuid': str(uuid.uuid4()),
-            'args': {'id': task_id}
+            "type": "item_move",
+            "uuid": str(uuid.uuid4()),
+            "args": {"id": task_id},
         }
         if parent_id is not None:
-            command['args']['parent_id'] = parent_id
+            command["args"]["parent_id"] = parent_id
         elif section_id is not None:
-            command['args']['section_id'] = section_id
+            command["args"]["section_id"] = section_id
         elif project_id is not None:
-            command['args']['project_id'] = project_id
+            command["args"]["project_id"] = project_id
 
         self.commands.append(command)
 
-    def send_commands(self) -> requests.Response:
-        headers = {'Authorization': f'Bearer {self.token}'}
-        payload = {'commands': json.dumps(self.commands)}
-        return requests.post(self.url, headers=headers, data=payload)
+    def send_commands(self, timeout: int = 10) -> requests.Response:
+        headers = {"Authorization": f"Bearer {self.token}"}
+        payload = {"commands": json.dumps(self.commands)}
+        return requests.post(self.url, headers=headers, data=payload, timeout=timeout)
