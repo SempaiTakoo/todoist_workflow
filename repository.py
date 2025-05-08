@@ -82,7 +82,7 @@ class TodoistSyncRepository:
         parent_id: str | None = None,
         section_id: str | None = None,
         project_id: str | None = None,
-    ) -> dict[str, Any] | None:
+    ) -> None:
         only_one_target: bool = (
             (parent_id is not None)
             ^ (section_id is not None)
@@ -112,7 +112,23 @@ class TodoistSyncRepository:
 
         self.commands.append(command)
 
+    def add_update_labels_command(
+        self, task_id: str, labels: list[str]
+    ) -> None:
+        command = {
+            "type": "item_update",
+            "uuid": str(uuid.uuid4()),
+            "args": {
+                "id": task_id,
+                "labels": labels,
+            }
+        }
+        self.commands.append(command)
+
     def send_commands(self, timeout: int = 10) -> requests.Response:
         headers = {"Authorization": f"Bearer {self.token}"}
         payload = {"commands": json.dumps(self.commands)}
-        return requests.post(self.url, headers=headers, data=payload, timeout=timeout)
+        self.commands = []
+        return requests.post(
+            self.url, headers=headers, data=payload, timeout=timeout
+        )
