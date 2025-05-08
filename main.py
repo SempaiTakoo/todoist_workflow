@@ -1,6 +1,6 @@
-from collections.abc import Callable
 import os
 from collections import defaultdict
+from collections.abc import Callable
 from typing import TypeVar
 
 from dotenv import load_dotenv
@@ -8,21 +8,6 @@ from todoist_api_python.models import Section, Task
 
 from repository import TodoistRepository, TodoistSyncRepository
 from utils import find_by_id, find_by_name
-
-TASK_LABELS_TO_MOVE = [
-    "#разовая",
-    "#календарь",
-    "#календарь/рутина/неделя",
-    "#календарь/рутина/месяц",
-    "#календарь/праздник",
-    "#календарь/платёж",
-    "#потом/неделя",
-    "#потом/месяц",
-    "#потом/неясно",
-]
-TASKS_DESTINATION = "6XmVVx4ChwxWffFx"
-PROJECTS_DESTINATION = "6XqvJwqJMgGm4QPv"
-
 
 load_dotenv()
 
@@ -128,6 +113,20 @@ def main() -> None:
         print("TOKEN отсутствует!")
         return
 
+    task_labels_to_move = [
+        "#разовая",
+        "#календарь",
+        "#календарь/рутина/неделя",
+        "#календарь/рутина/месяц",
+        "#календарь/праздник",
+        "#календарь/платёж",
+        "#потом/неделя",
+        "#потом/месяц",
+        "#потом/неясно",
+    ]
+    tasks_destination = "6XmVVx4ChwxWffFx"
+    projects_destination = "6XqvJwqJMgGm4QPv"
+
     todoist = TodoistWorkflowService(TOKEN, SYNC_URL)
 
     todoist.add_label_to_tasks_by_predicate(
@@ -137,12 +136,12 @@ def main() -> None:
     )
     todoist.move_tasks_with_labels_to_project(
         query="#Inbox",
-        labels=TASK_LABELS_TO_MOVE,
-        project_id=TASKS_DESTINATION
+        labels=task_labels_to_move,
+        project_id=tasks_destination
     )
     todoist.create_section_for_tasks_with_subtasks(
         query="#Inbox",
-        project_id=PROJECTS_DESTINATION
+        project_id=projects_destination
     )
 
 
